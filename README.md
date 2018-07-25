@@ -1,44 +1,9 @@
 ## Person_reID_baseline_pytorch
 
 Baseline Code (with bottleneck) for Person-reID (pytorch).
-It is consistent with the new baseline result in [Beyond Part Models: Person Retrieval with Refined Part Pooling](https://arxiv.org/abs/1711.09349) and [Camera Style Adaptation for Person Re-identification](https://arxiv.org/abs/1711.10295).
 
-We arrived **Rank@1=88.24%, mAP=70.68%** only with softmax loss.
-
-Here we provide hyperparameters and architectures, that were used to generate the result. 
-Some of them (i.e. learning rate) are far from optimal. Do not hesitate to change them and see the effect. 
-
-P.S. With similar structure, we arrived **Rank@1=87.74% mAP=69.46%** with Matconvnet. (batchsize=8, dropout=0.75) 
-You may refer to [Here](https://github.com/layumi/Person_reID_baseline_matconvnet).
-Different framework need to be tuned in a different way.
-
-**What's new:** Multiple-query Evaluation is added. The multiple-query result is about **Rank@1=91.95% mAP=78.06%**. 
-```bash
-python prepare.py
-python train.py
-python test.py --multi
-python evaluate_gpu.py
-```
-
-**What's new:**  [PCB](https://arxiv.org/abs/1711.09349) is added. You may use '--PCB' to use this model. It can achieve around **Rank@1=92.73% mAP=78.16%**. I used a GPU (P40) with 16GB Memory. You may try apply smaller batchsize and choose the smaller learning rate (for stability) to run. 
-```bash
-python train.py --PCB --batchsize 64 --name PCB-64
-python test.py --PCB --name PCB-64
-```
-
-**What's new:** You may try `evaluate_gpu.py` to conduct a faster evaluation with GPU.
-
-**What's new:** You may apply '--use_dense' to use `DenseNet-121`. It can easily arrive **Rank@1=89.91% mAP=73.58%**. Trained DenseNet-121 model can be found at [GoogleDrive](https://drive.google.com/open?id=1NgZWnYBCzESgKNzLeoWUMxggZ6SSEaZL).(Note that ResNet-50 is a more common choice as the baseline.)
-
-**What's new：** Trained ResNet-50 model is available at [GoogleDrive](https://drive.google.com/open?id=1__x0qNJ3T654wTghmuRjydn42NsAZW_M).
-
-**What's new:** Re-ranking is added to evaluation. The re-ranked result is **Rank@1=90.20% mAP=84.76%**.
-
-**What's new:** Random Erasing is added to train.
-
-**What's new:** I add some code to generate training curves. The figure will be saved into the model folder when training.
-
-![](https://github.com/layumi/Person_reID_baseline_pytorch/blob/master/train.jpg)
+We arrived **Rank@1=84.83%, mAP=67.10%** with stride=1.
+We arrived **Rank@1=82.30%, mAP=64.09%** with stride=2.
 
 ## Model Structure
 You may learn more from `model.py`. 
