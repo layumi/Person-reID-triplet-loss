@@ -106,20 +106,6 @@ CMC = CMC.float()
 CMC = CMC/len(query_label) #average CMC
 print('Rank@1:%f Rank@5:%f Rank@10:%f mAP:%f'%(CMC[0],CMC[4],CMC[9],ap/len(query_label)))
 
-#################
-print('-'*20)
-m = cam_metric.sum(dim = 1, keepdim=True)
-cam_metric = cam_metric.div( m.expand_as(cam_metric))
-print(cam_metric)
-cam_metric = cam_metric.numpy()
-fig, ax = plt.subplots()
-fig.set_size_inches(8,6)
-im = ax.imshow(cam_metric)
-for i in range(6):
-    for j in range(6):
-        ax.text(j,i,"%.4f"%cam_metric[i,j], ha="center", va = "center", color = "w")
-fig.savefig('cam_metric.jpg', dpi=120)
-
 # multiple-query
 CMC = torch.IntTensor(len(gallery_label)).zero_()
 ap = 0.0
