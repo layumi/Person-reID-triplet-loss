@@ -14,9 +14,11 @@ from torchvision import datasets, models, transforms
 import matplotlib
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
+import copy
 from PIL import Image
 import time
 import os
+from reid_sampler import StratifiedSampler
 from model import ft_net, ft_net_dense, PCB
 from random_erasing import RandomErasing
 from tripletfolder import TripletFolder
@@ -35,6 +37,10 @@ parser.add_argument('--data_dir',default='../Market/pytorch',type=str, help='tra
 parser.add_argument('--train_all', action='store_true', help='use all training data' )
 parser.add_argument('--color_jitter', action='store_true', help='use color jitter in training' )
 parser.add_argument('--batchsize', default=32, type=int, help='batchsize')
+parser.add_argument('--poolsize', default=128, type=int, help='poolsize')
+parser.add_argument('--margin', default=0.3, type=float, help='margin')
+parser.add_argument('--lr', default=0.01, type=float, help='margin')
+parser.add_argument('--alpha', default=0.0, type=float, help='regularization, push to -1')
 parser.add_argument('--erasing_p', default=0, type=float, help='Random Erasing probability, in [0,1]')
 parser.add_argument('--use_dense', action='store_true', help='use densenet121' )
 parser.add_argument('--PCB', action='store_true', help='use PCB+ResNet50' )
@@ -106,25 +112,28 @@ if opt.train_all:
      train_all = '_all'
 
 image_datasets = {}
-image_datasets['train'] = TripletFolder(os.path.join(data_dir, 'train' + train_all),
+image_datasets['train'] = TripletFolder(os.path.join(data_dir, 'train_all'),
                                           data_transforms['train'])
 image_datasets['val'] = TripletFolder(os.path.join(data_dir, 'val'),
                                           data_transforms['val'])
 
 batch = {}
 
-dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=opt.batchsize,
+class_names = image_datasets['train'].classes
+class_vector = [s[1] for s in image_datasets['train'].samples]
+dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=opt.batchsize, 
                                              shuffle=True, num_workers=8)
               for x in ['train', 'val']}
 
 dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'val']}
-class_names = image_datasets['train'].classes
 
 use_gpu = torch.cuda.is_available()
 
 since = time.time()
-inputs, classes, pos, pos_classes, neg, neg_classes, neg2, neg_classes2 = next(iter(dataloaders['train']))
+#inputs, classes, pos, pos_classes = next(iter(dataloaders['train']))
 print(time.time()-since)
+
+
 ######################################################################
 # Training the model
 # ------------------
@@ -150,6 +159,7 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
 
     best_model_wts = model.state_dict()
     best_acc = 0.0
+    last_margin = 0.0
 
     for epoch in range(num_epochs):
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
@@ -165,23 +175,25 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
 
             running_loss = 0.0
             running_corrects = 0.0
+            running_margin = 0.0
+            running_reg = 0.0
             # Iterate over data.
             for data in dataloaders[phase]:
                 # get the inputs
-                inputs, labels, pos, pos_labels, neg_data, neg_labels, neg_data2, neg_labels2 = data
-                neg_data = torch.cat((neg_data, neg_data2, pos), 0)
-                neg_labels = torch.cat((neg_labels, neg_labels2, pos_labels), 0)
-
+                inputs, labels, pos, pos_labels = data
                 now_batch_size,c,h,w = inputs.shape
-                neg_batch_size,_,_,_ = neg_data.shape
-
+                
                 if now_batch_size<opt.batchsize: # next epoch
                     continue
+                pos = pos.view(4*opt.batchsize,c,h,w)
+                #copy pos 4times
+                pos_labels = pos_labels.repeat(4).reshape(4,opt.batchsize)
+                pos_labels = pos_labels.transpose(0,1).reshape(4*opt.batchsize)
+
                 # wrap them in Variable
                 if use_gpu:
                     inputs = Variable(inputs.cuda())
                     pos = Variable(pos.cuda())
-                    neg = Variable(neg_data.cuda())
                     labels = Variable(labels.cuda())
                 else:
                     inputs, labels = Variable(inputs), Variable(labels)
@@ -190,16 +202,21 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                 optimizer.zero_grad()
 
                 # forward
+                #model_eval = copy.deepcopy(model)
+                #model_eval = model_eval.eval()
                 outputs, f = model(inputs)
                 _, pf = model(pos)
-                _, nf = model(neg)
-                pf = pf.detach()
-                nf = nf.detach()
-                # re-arrange
+                #pf = Variable( pf, requires_grad=True)
+                neg_labels = pos_labels
+                # hard-neg
                 # ----------------------------------
-                nf_data = nf.data # 128*512
+                nf_data = pf # 128*512
+                # 128 is too much, we use pool size = 64
+                rand = np.random.permutation(4*opt.batchsize)[0:opt.poolsize]
+                nf_data = nf_data[rand,:]
+                neg_labels = neg_labels[rand]
                 nf_t = nf_data.transpose(0,1) # 512*128
-                score = torch.mm(f.data, nf_t) #cosine 
+                score = torch.mm(f.data, nf_t) # cosine 32*128 
                 score, rank = score.sort(dim=1, descending = True) # score high == hard
                 labels_cpu = labels.cpu()
                 nf_hard = torch.zeros(f.shape).cuda()
@@ -211,11 +228,22 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                         if now_label != anchor_label:
                             nf_hard[k,:] = nf_data[kk,:]
                             break
-                nf_hard = Variable(nf_hard.cuda())
-                #print(nf_hard.shape)
-                #criterion_triplet = nn.TripletMarginLoss(margin=0.5)
-                criterion_triplet = nn.MarginRankingLoss(margin=0.5)                
-                pscore = torch.sum( f * pf, dim=1) 
+
+                # hard-pos
+                # ----------------------------------
+                pf_hard = torch.zeros(f.shape).cuda() # 32*512
+                for k in range(now_batch_size):
+                    pf_data = pf[4*k:4*k+4,:]
+                    pf_t = pf_data.transpose(0,1) # 512*4
+                    ff = f.data[k,:].reshape(1,-1) # 1*512
+                    score = torch.mm(ff, pf_t) #cosine
+                    score, rank = score.sort(dim=1, descending = False) #score low == hard
+                    pf_hard[k,:] = pf_data[rank[0][0],:]
+
+                # loss
+                # ---------------------------------
+                criterion_triplet = nn.MarginRankingLoss(margin=opt.margin)                
+                pscore = torch.sum( f * pf_hard, dim=1) 
                 nscore = torch.sum( f * nf_hard, dim=1)
                 y = torch.ones(now_batch_size)
                 y = Variable(y.cuda())
@@ -224,7 +252,9 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                     _, preds = torch.max(outputs.data, 1)
                     #loss = criterion(outputs, labels)
                     #loss_triplet = criterion_triplet(f, pf, nf)
-                    loss_triplet = criterion_triplet(pscore, nscore, y)
+                    reg = torch.sum((1+nscore)**2) + torch.sum((-1+pscore)**2)
+                    loss = torch.sum(torch.nn.functional.relu(nscore + opt.margin - pscore))  #Here I use sum
+                    loss_triplet = loss + opt.alpha*reg
                 else:
                     part = {}
                     sm = nn.Softmax(dim=1)
@@ -243,26 +273,35 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                 if phase == 'train':
                     loss_triplet.backward()
                     optimizer.step()
-
                 # statistics
                 if int(version[2]) > 3: # for the new version like 0.4.0 and 0.5.0
-                    running_loss += loss_triplet.item()
+                    running_loss += loss_triplet.item() #* opt.batchsize
                 else :  # for the old version like 0.3.0 and 0.3.1
-                    running_loss += loss_triplet.data[0]
+                    running_loss += loss_triplet.data[0] #*opt.batchsize
                 #print( loss_triplet.item())
-                running_corrects += float(torch.sum(preds == labels.data))
+                running_corrects += float(torch.sum(pscore>nscore+opt.margin))
+                running_margin +=float(torch.sum(pscore-nscore))
+                running_reg += reg
 
-            epoch_loss = running_loss / dataset_sizes[phase]
-            epoch_acc = running_corrects / dataset_sizes[phase]
-            
-            print('{} Loss: {:.4f} Acc: {:.4f}'.format(
-                phase, epoch_loss, epoch_acc))
+            datasize = dataset_sizes['train']//opt.batchsize * opt.batchsize
+            epoch_loss = running_loss / datasize
+            epoch_reg = opt.alpha*running_reg/ datasize
+            epoch_acc = running_corrects / datasize
+            epoch_margin = running_margin / datasize
+
+            #if epoch_acc>0.75:
+            #    opt.margin = min(opt.margin+0.02, 1.0)
+            print('now_margin: %.4f'%opt.margin)           
+            print('{} Loss: {:.4f} Reg: {:.4f} Acc: {:.4f} MeanMargin: {:.4f}'.format(
+                phase, epoch_loss, epoch_reg, epoch_acc, epoch_margin))
             
             y_loss[phase].append(epoch_loss)
-            y_err[phase].append(1.0-epoch_acc)            
+            y_err[phase].append(1.0-epoch_acc)
             # deep copy the model
-            
-            last_model_wts = model.state_dict()
+            if epoch_margin>last_margin:
+                last_margin = epoch_margin            
+                last_model_wts = model.state_dict()
+
             if epoch%10 == 9:
                 save_network(model, epoch)
             draw_curve(epoch)
@@ -335,9 +374,9 @@ if not opt.PCB:
     ignored_params = list(map(id, model.model.fc.parameters() )) + list(map(id, model.classifier.parameters() ))
     base_params = filter(lambda p: id(p) not in ignored_params, model.parameters())
     optimizer_ft = optim.SGD([
-             {'params': base_params, 'lr': 0.01},
-             {'params': model.model.fc.parameters(), 'lr': 0.1},
-             {'params': model.classifier.parameters(), 'lr': 0.1}
+             {'params': base_params, 'lr': 0.1*opt.lr},
+             {'params': model.model.fc.parameters(), 'lr': opt.lr},
+             {'params': model.classifier.parameters(), 'lr': opt.lr}
          ], weight_decay=5e-4, momentum=0.9, nesterov=True)
 else:
     ignored_params = list(map(id, model.model.fc.parameters() ))
@@ -364,8 +403,7 @@ else:
              #{'params': model.classifier7.parameters(), 'lr': 0.01}
          ], weight_decay=5e-4, momentum=0.9, nesterov=True)
 
-# Decay LR by a factor of 0.1 every 40 epochs
-exp_lr_scheduler = lr_scheduler.StepLR(optimizer_ft, step_size=40, gamma=0.1)
+exp_lr_scheduler = lr_scheduler.MultiStepLR(optimizer_ft, milestones=[40,60], gamma=0.1)
 
 ######################################################################
 # Train and evaluate
@@ -376,7 +414,7 @@ exp_lr_scheduler = lr_scheduler.StepLR(optimizer_ft, step_size=40, gamma=0.1)
 dir_name = os.path.join('./model',name)
 if not os.path.isdir(dir_name):
     os.mkdir(dir_name)
-    copyfile('./train.py', dir_name+'/train.py')
+    copyfile('./train_new.py', dir_name+'/train_new.py')
     copyfile('./model.py', dir_name+'/model.py')
     copyfile('./tripletfolder.py', dir_name+'/tripletfolder.py')
 
@@ -385,5 +423,5 @@ with open('%s/opts.json'%dir_name,'w') as fp:
     json.dump(vars(opt), fp, indent=1)
 
 model = train_model(model, criterion, optimizer_ft, exp_lr_scheduler,
-                       num_epochs=60)
+                       num_epochs=70)
 
