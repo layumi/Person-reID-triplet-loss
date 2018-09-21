@@ -54,7 +54,7 @@ if len(gpu_ids)>0:
 # data.
 #
 data_transforms = transforms.Compose([
-        transforms.Resize((288,144), interpolation=3),
+        transforms.Resize((256,128), interpolation=3),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ############### Ten Crop        
@@ -114,7 +114,7 @@ def extract_feature(model,dataloaders):
         n, c, h, w = img.size()
         count += n
         print(count)
-        ff = torch.FloatTensor(n, 512).zero_()
+        ff = torch.FloatTensor(n, 2048).zero_()
         for i in range(2):
             if(i==1):
                 img = fliplr(img)

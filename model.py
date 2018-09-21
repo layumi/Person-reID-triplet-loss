@@ -26,10 +26,11 @@ def weights_init_classifier(m):
 # Defines the new fc layer and classification layer
 # |--Linear--|--bn--|--relu--|--Linear--|
 class ClassBlock(nn.Module):
-    def __init__(self, input_dim, class_num, dropout=True, relu=True, num_bottleneck=512):
+    def __init__(self, input_dim, class_num, dropout=False, relu=False, num_bottleneck=512):
         super(ClassBlock, self).__init__()
         add_block = []
-        add_block += [nn.Linear(input_dim, num_bottleneck)] 
+        #add_block += [nn.Linear(input_dim, num_bottleneck)] 
+        num_bottleneck=input_dim
         add_block += [nn.BatchNorm1d(num_bottleneck)]
         if relu:
             add_block += [nn.LeakyReLU(0.1)]
@@ -63,8 +64,8 @@ class ft_net(nn.Module):
         self.model = model_ft
         self.classifier = ClassBlock(2048, class_num, dropout=False, relu=False)
         # remove the final downsample
-        self.model.layer4[0].downsample[0].stride = (1,1)
-        self.model.layer4[0].conv2.stride = (1,1)
+        # self.model.layer4[0].downsample[0].stride = (1,1)
+        # self.model.layer4[0].conv2.stride = (1,1)
     def forward(self, x):
         x = self.model.conv1(x)
         x = self.model.bn1(x)
@@ -201,9 +202,9 @@ class PCB_test(nn.Module):
 
 # debug model structure
 #net = ft_net(751)
-net = ft_net(751)
+#net = ft_net(751)
 #print(net)
-input = Variable(torch.FloatTensor(8, 3, 224, 224))
-output,f = net(input)
-print('net output size:')
-print(f.shape)
+#input = Variable(torch.FloatTensor(8, 3, 224, 224))
+#output,f = net(input)
+#print('net output size:')
+#print(f.shape)
