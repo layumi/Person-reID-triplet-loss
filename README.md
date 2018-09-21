@@ -3,12 +3,17 @@
 Baseline Code (with bottleneck) for Person-reID (pytorch).
 
 We arrived **Rank@1=86.45%, mAP=70.66%** with ResNet stride=2.
+SGD optimizer is used.
 
 Any suggestion is welcomed.
 
 ## Model Structure
-You may learn more from `model.py`. 
-We add one linear layer(bottleneck), one batchnorm layer and relu.
+You may learn more from `model.py`.  We use the L2-norm 2048-dim feature as the input.
+
+## Trips
+- Larger margin may lead to a worse local minimum. (margin = 0.1-0.3 may provide a better result.)
+- Per-class sampler (Satisfied sampler)is not neccessary. 
+- Adam optimizer is not neccessary.
 
 ## Prerequisites
 
