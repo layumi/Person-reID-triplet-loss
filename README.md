@@ -2,7 +2,7 @@
 
 Baseline Code (with bottleneck) for Person-reID (pytorch).
 
-We arrived **Rank@1=86.02%, mAP=69.03%** with stride=2.
+We arrived **Rank@1=86.45%, mAP=70.66%** with stride=2.
 
 Any suggestion is welcomed.
 
