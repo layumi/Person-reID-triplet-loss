@@ -18,7 +18,7 @@ import copy
 from PIL import Image
 import time
 import os
-from reid_sampler import StratifiedSampler
+#from reid_sampler import StratifiedSampler
 from model import ft_net, ft_net_dense, PCB
 from random_erasing import RandomErasing
 from tripletfolder import TripletFolder
