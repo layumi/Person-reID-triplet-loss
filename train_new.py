@@ -343,9 +343,12 @@ def draw_curve(current_epoch):
 def save_network(network, epoch_label):
     save_filename = 'net_%s.pth'% epoch_label
     save_path = os.path.join('./model',name,save_filename)
-    torch.save(network.cpu().state_dict(), save_path)
-    if torch.cuda.is_available:
-        network.cuda(gpu_ids[0])
+    if len(gpu_ids)>1:
+        torch.save(network.module.state_dict(), save_path)
+    else:
+        torch.save(network.cpu().state_dict(), save_path)
+        if torch.cuda.is_available:
+            network.cuda(gpu_ids[0])
 
 
 ######################################################################
