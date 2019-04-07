@@ -11,6 +11,7 @@ Any suggestion is welcomed.
 You may learn more from `model.py`.  We use the L2-norm 2048-dim feature as the input.
 
 ## Tips
+- I did not optimize the code. I strongly suggest use fp16 and use `with torch.no_grad()`. I will update the code later.
 - Larger margin may lead to a worse local minimum. (margin = 0.1-0.3 may provide a better result.)
 - Per-class sampler (Satisfied sampler)is not neccessary. 
 - Adam optimizer is not neccessary.
