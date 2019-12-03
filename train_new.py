@@ -27,6 +27,14 @@ from shutil import copyfile
 
 version =  torch.__version__
 
+#fp16
+try:
+    from apex.fp16_utils import *
+    from apex import amp, optimizers
+except ImportError: # will be 3.x series
+    print('This is not an error. If you want to use low precision, i.e., fp16, please install the apex with cuda support (https://github.com/NVIDIA/apex) and update pytorch to 1.0')
+
+
 ######################################################################
 # Options
 # --------
@@ -44,6 +52,7 @@ parser.add_argument('--alpha', default=0.0, type=float, help='regularization, pu
 parser.add_argument('--erasing_p', default=0, type=float, help='Random Erasing probability, in [0,1]')
 parser.add_argument('--use_dense', action='store_true', help='use densenet121' )
 parser.add_argument('--PCB', action='store_true', help='use PCB+ResNet50' )
+parser.add_argument('--fp16', action='store_true', help='use float16 instead of float32, which will save about 50% memory' )
 opt = parser.parse_args()
 
 data_dir = opt.data_dir
@@ -271,10 +280,15 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
 
                 # backward + optimize only if in training phase
                 if phase == 'train':
-                    loss_triplet.backward()
+                    if fp16: # we use optimier to backward loss
+                        with amp.scale_loss(loss_triplet, optimizer) as scaled_loss:
+                            scaled_loss.backward()
+                    else:
+                        loss_triplet.backward()
+                    
                     optimizer.step()
                 # statistics
-                if int(version[2]) > 3: # for the new version like 0.4.0 and 0.5.0
+                if int(version[0])>0 or int(version[2]) > 3: # for the new version like 0.4.0 and 0.5.0
                     running_loss += loss_triplet.item() #* opt.batchsize
                 else :  # for the old version like 0.3.0 and 0.3.1
                     running_loss += loss_triplet.data[0] #*opt.batchsize
@@ -421,6 +435,9 @@ if not os.path.isdir(dir_name):
 # save opts
 with open('%s/opts.json'%dir_name,'w') as fp:
     json.dump(vars(opt), fp, indent=1)
+    
+if fp16:
+    model, optimizer_ft = amp.initialize(model, optimizer_ft, opt_level = "O1")
 
 model = train_model(model, criterion, optimizer_ft, exp_lr_scheduler,
                        num_epochs=70)
