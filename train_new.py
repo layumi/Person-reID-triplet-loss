@@ -57,6 +57,7 @@ opt = parser.parse_args()
 
 data_dir = opt.data_dir
 name = opt.name
+fp16 = opt.fp16
 str_ids = opt.gpu_ids.split(',')
 gpu_ids = []
 for str_id in str_ids:
