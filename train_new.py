@@ -358,9 +358,12 @@ def draw_curve(current_epoch):
 def save_network(network, epoch_label):
     save_filename = 'net_%s.pth'% epoch_label
     save_path = os.path.join('./model',name,save_filename)
-    torch.save(network.cpu().state_dict(), save_path)
-    if torch.cuda.is_available:
-        network.cuda(gpu_ids[0])
+    if len(gpu_ids)>1:
+        torch.save(network.module.state_dict(), save_path)
+    else:
+        torch.save(network.cpu().state_dict(), save_path)
+        if torch.cuda.is_available:
+            network.cuda(gpu_ids[0])
 
 
 ######################################################################
@@ -382,17 +385,31 @@ print(model)
 
 if use_gpu:
     model = model.cuda()
-
+##############################use multiple gpu####################################
+if len(gpu_ids)>1:
+    model=torch.nn.DataParallel(model, device_ids=gpu_ids).cuda()
+#################################################################################
 criterion = nn.CrossEntropyLoss()
 
 if not opt.PCB:
-    ignored_params = list(map(id, model.model.fc.parameters() )) + list(map(id, model.classifier.parameters() ))
-    base_params = filter(lambda p: id(p) not in ignored_params, model.parameters())
-    optimizer_ft = optim.SGD([
-             {'params': base_params, 'lr': 0.1*opt.lr},
-             {'params': model.model.fc.parameters(), 'lr': opt.lr},
-             {'params': model.classifier.parameters(), 'lr': opt.lr}
-         ], weight_decay=5e-4, momentum=0.9, nesterov=True)
+    if len(gpu_ids)>1:
+        ignored_params = list(map(id, model.module.model.fc.parameters() )) + list(map(id, model.module.classifier.parameters() ))
+        base_params = filter(lambda p: id(p) not in ignored_params, model.parameters())
+        optimizer_ft = optim.SGD([
+                 {'params': base_params, 'lr': 0.1*opt.lr},
+                 {'params': model.module.model.fc.parameters(), 'lr': opt.lr},
+                 {'params': model.module.classifier.parameters(), 'lr': opt.lr}
+             ], weight_decay=5e-4, momentum=0.9, nesterov=True)
+     else:
+        ignored_params = list(map(id, model.model.fc.parameters() )) + list(map(id, model.classifier.parameters() ))
+        base_params = filter(lambda p: id(p) not in ignored_params, model.parameters())
+        optimizer_ft = optim.SGD([
+                 {'params': base_params, 'lr': 0.1*opt.lr},
+                 {'params': model.model.fc.parameters(), 'lr': opt.lr},
+                 {'params': model.classifier.parameters(), 'lr': opt.lr}
+             ], weight_decay=5e-4, momentum=0.9, nesterov=True)
+    
+    
 else:
     ignored_params = list(map(id, model.model.fc.parameters() ))
     ignored_params += (list(map(id, model.classifier0.parameters() )) 
