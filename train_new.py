@@ -178,7 +178,6 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
         # Each epoch has a training and validation phase
         for phase in ['train']:
             if phase == 'train':
-                scheduler.step()
                 model.train(True)  # Set model to training mode
             else:
                 model.train(False)  # Set model to evaluate mode
@@ -309,7 +308,8 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
             print('now_margin: %.4f'%opt.margin)           
             print('{} Loss: {:.4f} Reg: {:.4f} Acc: {:.4f} MeanMargin: {:.4f}'.format(
                 phase, epoch_loss, epoch_reg, epoch_acc, epoch_margin))
-            
+            if phase == 'train':
+                scheduler.step()
             y_loss[phase].append(epoch_loss)
             y_err[phase].append(1.0-epoch_acc)
             # deep copy the model
